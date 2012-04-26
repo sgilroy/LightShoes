@@ -22,17 +22,9 @@
 #include "LPD8806.h"
 #include "TimerOne.h"
 
-
-#if defined(USE_TINY_PINS) && (defined(USB_SERIAL) || defined(USB_SERIAL_ADAFRUIT))
-// this is for teensyduino support
-int dataPin = 2;
-int clockPin = 1;
-#else 
-// these are the pins we use for the LED belt kit using
-// the Leonardo pinouts
-int dataPin = 2;
-int clockPin = dataPin + 1;
-#endif
+// For the LightShoes, we use two separate strips, each with a data and clock pin.
+int dataLeftPin = 2;
+int clockLeftPin = 3;
 
 int dataRightPin = 15;
 int clockRightPin = 14;
@@ -49,18 +41,19 @@ const int numPixels = 22;
 // 'const' makes subsequent array declarations possible, otherwise there
 // would be a pile of malloc() calls later.
 
+// Index (0 based) of the pixel at the front of the shoe. Used by some of the render effects.
 int frontOffset = 5;
 
-// Instantiate LED strip; arguments are the total number of pixels in strip,
+// Instantiate LED strips; arguments are the total number of pixels in strip,
 // the data pin number and clock pin number:
-LPD8806 strip = LPD8806(numPixels, dataPin, clockPin);
+LPD8806 stripLeft = LPD8806(numPixels, dataLeftPin, clockLeftPin);
 LPD8806 stripRight = LPD8806(numPixels, dataRightPin, clockRightPin);
 
 // You can also use hardware SPI for ultra-fast writes by omitting the data
 // and clock pin arguments.  This is faster, but the data and clock are then
 // fixed to very specific pin numbers: on Arduino 168/328, data = pin 11,
 // clock = pin 13.  On Mega, data = pin 51, clock = pin 52.
-//LPD8806 strip = LPD8806(numPixels);
+//LPD8806 stripLeft = LPD8806(numPixels);
 
 // Principle of operation: at any given time, the LEDs depict an image or
 // animation effect (referred to as the "back" image throughout this code).
@@ -226,7 +219,7 @@ void setup() {
   // Start up the LED strip.  Note that strip.show() is NOT called here --
   // the callback function will be invoked immediately when attached, and
   // the first thing the calback does is update the strip.
-  strip.begin();
+  stripLeft.begin();
   stripRight.begin();
 
   // Initialize random number generator from a floating analog input.
@@ -255,7 +248,7 @@ void callback() {
   // beat with respect to the Timer1 interrupt.  The various effects
   // rendering and compositing code is not constant-time, and that
   // unevenness would be apparent if show() were called at the end.
-  strip.show();
+  stripLeft.show();
   stripRight.show();
 
   byte frontImgIdx = 1 - backImgIdx,
@@ -287,7 +280,7 @@ void callback() {
       r = gamma((*frontPtr++ * alpha + *backPtr++ * inv) >> 8);
       g = gamma((*frontPtr++ * alpha + *backPtr++ * inv) >> 8);
       b = gamma((*frontPtr++ * alpha + *backPtr++ * inv) >> 8);
-      strip.setPixelColor(i, r, g, b);
+      stripLeft.setPixelColor(i, r, g, b);
       stripRight.setPixelColor(i, r, g, b);
     }
   } else {
@@ -297,7 +290,7 @@ void callback() {
       r = gamma(*backPtr++);
       g = gamma(*backPtr++);
       b = gamma(*backPtr++);
-      strip.setPixelColor(i, r, g, b);
+      stripLeft.setPixelColor(i, r, g, b);
       stripRight.setPixelColor(i, r, g, b);
     }
   }
@@ -321,10 +314,10 @@ void callback() {
   if (DEBUG_PRINTS)
   {
     Serial.print("callback complete ");
-    Serial.print("dataPin ");
-    Serial.print(dataPin);
-    Serial.print(" clockPin ");
-    Serial.print(clockPin);
+    Serial.print("dataLeftPin ");
+    Serial.print(dataLeftPin);
+    Serial.print(" clockLeftPin ");
+    Serial.print(clockLeftPin);
     Serial.println();
   }
   readForce();
