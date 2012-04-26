@@ -1,4 +1,10 @@
-// Example to control LPD8806-based RGB LED Modules in a strip; originally
+/*
+ * LightShoes
+ * by Scott Gilroy
+ * https://github.com/sgilroy/LightShoes
+ */
+// Based on the example code from Adafruit
+// to control LPD8806-based RGB LED Modules in a strip; originally
 // intended for the Adafruit Digital Programmable LED Belt Kit.
 // REQUIRES TIMER1 LIBRARY: http://www.arduino.cc/playground/Code/Timer1
 // ALSO REQUIRES LPD8806 LIBRARY, which should be included with this code.
