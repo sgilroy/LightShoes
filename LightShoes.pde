@@ -21,23 +21,33 @@
 #include "SPI.h"
 #include "LPD8806.h"
 #include "TimerOne.h"
+//#include <MeetAndroid.h>
+#include <MeetAndroidUart.h>
+
+// declare MeetAndroid so that you can call functions with it
+MeetAndroidUart meetAndroid;
 
 // For the LightShoes, we use two separate strips, each with a data and clock pin.
-int dataLeftPin = 2;
-int clockLeftPin = 3;
+const int dataLeftPin = 2;
+const int clockLeftPin = 3;
 
-int dataRightPin = 15;
-int clockRightPin = 14;
+const int dataRightPin = 15;
+const int clockRightPin = 14;
 
-int forceLeftPin = 4;
+const int dataLeft2Pin = 1;
+const int clockLeft2Pin = 0;
+const int dataRight2Pin = 3;
+const int clockRight2Pin = 2;
 
-bool DEBUG_PRINTS = false;
+const int forceLeftPin = 4;
+
+const bool DEBUG_PRINTS = false;
 
 int brightnessLimiter = 0;
 
 // Declare the number of pixels in strand; 32 = 32 pixels in a row.  The
 // LED strips have 32 LEDs per meter, but you can extend or cut the strip.
-const int numPixels = 22;
+const int numPixels = 32;
 // 'const' makes subsequent array declarations possible, otherwise there
 // would be a pile of malloc() calls later.
 
@@ -48,6 +58,8 @@ int frontOffset = 5;
 // the data pin number and clock pin number:
 LPD8806 stripLeft = LPD8806(numPixels, dataLeftPin, clockLeftPin);
 LPD8806 stripRight = LPD8806(numPixels, dataRightPin, clockRightPin);
+LPD8806 stripLeft2 = LPD8806(numPixels, dataLeft2Pin, clockLeft2Pin);
+LPD8806 stripRight2 = LPD8806(numPixels, dataRight2Pin, clockRight2Pin);
 
 // You can also use hardware SPI for ultra-fast writes by omitting the data
 // and clock pin arguments.  This is faster, but the data and clock are then
@@ -73,6 +85,7 @@ int  fxVars[3][50],             // Effect instance variables (explained later)
 
 // function prototypes, leave these be :)
 void renderEffectSolidFill(byte idx);
+void renderEffectBluetoothLamp(byte idx);
 void renderEffectRainbow(byte idx);
 void renderEffectSineWaveChase(byte idx);
 void renderEffectPointChase(byte idx);
@@ -96,19 +109,19 @@ int getPointChaseAlpha(byte idx, long i, int halfPeriod);
 // each of these appears later in this file.  Just a few to start with...
 // simply append new ones to the appropriate list here:
 void (*renderEffect[])(byte) = {
-//  renderEffectMonochromeChase,
+  renderEffectMonochromeChase,
   renderEffectMonochromeChase,
   renderEffectBlast,
   renderEffectBlast,
-  renderEffectBlast,
-  renderEffectBlast,
+//  renderEffectBlast,
+//  renderEffectBlast,
   renderEffectSolidFill,
 //  renderEffectRainbow,
   renderEffectSineWaveChase,
   renderEffectPointChase,
   renderEffectNewtonsCradle,
   renderEffectWavyFlag,
-//  renderEffectThrob,
+  renderEffectThrob,
 
 //  renderEffectDebug1
 },
@@ -134,18 +147,25 @@ long fsrForce;       // Finally, the resistance converted to force
 int fsrStepFraction = 0;
 int fsrStepFractionMax = 60;
 bool gammaRespondsToForce = false;
+const bool debugFsrReading = false;
 
 int fsrReadingIndex = 0;
 #define numFsrReadings 5
 int fsrReadings[numFsrReadings];
 
+byte colorRed = 0;
+byte colorGreen = 0;
+byte colorBlue = 0;
 
 // ---------------------------------------------------------------------------
 
 void readForce() {
   fsrReading = analogRead(fsrPin);  
-  Serial.print("Analog reading = ");
-  Serial.println(fsrReading);
+  if (debugFsrReading)
+  {
+    Serial.print("Analog reading = ");
+    Serial.println(fsrReading);
+  }
   
   if (true)
   {
@@ -160,30 +180,45 @@ void readForce() {
     fsrReadingAvg = fsrReadingSum / numFsrReadings;
     fsrReading = (int)fsrReadingAvg;
   
-    Serial.print("Average reading = ");
-    Serial.println(fsrReading);
+    if (debugFsrReading)
+    {
+      Serial.print("Average reading = ");
+      Serial.println(fsrReading);
+    }
   }
  
   // analog voltage reading ranges from about 0 to 1023 which maps to 0V to 5V (= 5000mV)
   fsrVoltage = map(fsrReading, 0, 1023, 0, 5000);
-  Serial.print("Voltage reading in mV = ");
-  Serial.println(fsrVoltage);  
+  if (debugFsrReading)
+  {
+    Serial.print("Voltage reading in mV = ");
+    Serial.println(fsrVoltage);  
+  }
  
   if (fsrVoltage == 0) {
-    Serial.println("No pressure");  
+    if (debugFsrReading)
+    {
+      Serial.println("No pressure");  
+    }
   } else {
     // The voltage = Vcc * R / (R + FSR) where R = 10K and Vcc = 5V
     // so FSR = ((Vcc - V) * R) / V        yay math!
     fsrResistance = 5000 - fsrVoltage;     // fsrVoltage is in millivolts so 5V = 5000mV
     fsrResistance *= 10000;                // 10K resistor
     fsrResistance /= fsrVoltage;
-    Serial.print("FSR resistance in ohms = ");
-    Serial.println(fsrResistance);
+    if (debugFsrReading)
+    {
+      Serial.print("FSR resistance in ohms = ");
+      Serial.println(fsrResistance);
+    }
  
     fsrConductance = 1000000;           // we measure in micromhos so 
     fsrConductance /= fsrResistance;
-    Serial.print("Conductance in microMhos: ");
-    Serial.println(fsrConductance);
+    if (debugFsrReading)
+    {
+      Serial.print("Conductance in microMhos: ");
+      Serial.println(fsrConductance);
+    }
  
     // Use the two FSR guide graphs to approximate the force
 //    if (fsrConductance <= 1000) {
@@ -194,18 +229,42 @@ void readForce() {
 //      fsrForce /= 30;
 //    }
     fsrStepFraction = fsrForce > fsrStepFractionMax ? fsrStepFractionMax : fsrForce;
-    Serial.print("Force in Newtons: ");
-    Serial.println(fsrForce);      
-    Serial.print("Step Fraction: ");
-    Serial.println(fsrStepFraction);      
-//    Serial.print("Step Fraction: ");
-//    Serial.println(fsrStepFraction);      
+    if (debugFsrReading)
+    {
+      Serial.print("Force in Newtons: ");
+      Serial.println(fsrForce);      
+      Serial.print("Step Fraction: ");
+      Serial.println(fsrStepFraction);      
+  //    Serial.print("Step Fraction: ");
+  //    Serial.println(fsrStepFraction);      
+    }
   }
-  Serial.println("--------------------");
+  if (debugFsrReading)
+  {
+    Serial.println("--------------------");
+  }
 }
 
 void setup() {
-  Serial.begin(9600);
+//  meetAndroid.uart.begin(57600); 
+//  delay(100);
+//  meetAndroid.uart.print("$$$");
+//  delay(100);
+//  meetAndroid.uart.println("U,115200,N");
+  
+  meetAndroid.uart.begin(115200); 
+//  delay(100);
+//  meetAndroid.uart.print("$$$");
+//  delay(100);
+//  meetAndroid.uart.println("U,115200,N");
+
+//  meetAndroid.uart.begin(57600); 
+  // register callback functions, which will be called when an associated event occurs.
+  meetAndroid.registerFunction(red, 'o');
+  meetAndroid.registerFunction(green, 'p');  
+  meetAndroid.registerFunction(blue, 'q'); 
+
+  Serial.begin(115200);
   if (DEBUG_PRINTS)
   {
     Serial.println("Test seri");
@@ -221,6 +280,8 @@ void setup() {
   // the first thing the calback does is update the strip.
   stripLeft.begin();
   stripRight.begin();
+  stripLeft2.begin();
+  stripRight2.begin();
 
   // Initialize random number generator from a floating analog input.
   randomSeed(analogRead(0));
@@ -238,7 +299,41 @@ void setup() {
 void loop() {
   // Do nothing.  All the work happens in the callback() function below,
   // but we still need loop() here to keep the compiler happy.
+  meetAndroid.receive(); // you need to keep this in your loop() to receive events
 }
+
+/*
+ * Whenever the multicolor lamp app changes the red value
+ * this function will be called
+ */
+void red(byte flag, byte numOfValues)
+{
+  Serial.print("Buffer length = ");
+  Serial.print(meetAndroid.bufferLength());
+  Serial.print(", ");
+  colorRed = meetAndroid.getInt();
+  Serial.print("Red = ");
+  Serial.println((int)colorRed);  
+}
+
+/*
+ * Whenever the multicolor lamp app changes the green value
+ * this function will be called
+ */
+void green(byte flag, byte numOfValues)
+{
+  colorGreen = meetAndroid.getInt();
+}
+
+/*
+ * Whenever the multicolor lamp app changes the blue value
+ * this function will be called
+ */
+void blue(byte flag, byte numOfValues)
+{
+  colorBlue = meetAndroid.getInt();
+}
+
 
 // Timer1 interrupt handler.  Called at equal intervals; 60 Hz by default.
 void callback() {
@@ -250,6 +345,8 @@ void callback() {
   // unevenness would be apparent if show() were called at the end.
   stripLeft.show();
   stripRight.show();
+  stripLeft2.show();
+  stripRight2.show();
 
   byte frontImgIdx = 1 - backImgIdx,
        *backPtr    = &imgData[backImgIdx][0],
@@ -282,6 +379,8 @@ void callback() {
       b = gamma((*frontPtr++ * alpha + *backPtr++ * inv) >> 8);
       stripLeft.setPixelColor(i, r, g, b);
       stripRight.setPixelColor(i, r, g, b);
+      stripLeft2.setPixelColor(i, r, g, b);
+      stripRight2.setPixelColor(i, r, g, b);
     }
   } else {
     // No transition in progress; just show back image
@@ -292,6 +391,8 @@ void callback() {
       b = gamma(*backPtr++);
       stripLeft.setPixelColor(i, r, g, b);
       stripRight.setPixelColor(i, r, g, b);
+      stripLeft2.setPixelColor(i, r, g, b);
+      stripRight2.setPixelColor(i, r, g, b);
     }
   }
 
@@ -475,11 +576,57 @@ void renderEffectBlast(byte idx) {
     
     // Peaks of sine wave are white, troughs are black, mid-range
     // values are pure hue (100% saturated).
+
     color = hsv2rgb(fxVars[idx][1], 255, alpha);
     *ptr++ = color >> 16; *ptr++ = color >> 8; *ptr++ = color;
+//    *ptr++ = colorRed; *ptr++ = colorGreen; *ptr++ = colorBlue;
   }
 //  fxVars[idx][4] += fxVars[idx][3];
 //  fxVars[idx][4] %= 720;
+  fxVars[idx][4] = map(fsrStepFraction, 0, fsrStepFractionMax, 0, 720);
+}
+
+void renderEffectBluetoothLamp(byte idx) {
+  if(fxVars[idx][0] == 0) { // Initialize effect?
+    gammaRespondsToForce = false;
+    fxVars[idx][1] = random(1536); // Random hue
+    // Number of repetitions (complete loops around color wheel);
+    // any more than 4 per meter just looks too chaotic.
+    // Store as distance around complete belt in half-degree units:
+//    fxVars[idx][2] = (1 + random(4 * ((numPixels + 31) / 32))) * 720;
+    fxVars[idx][2] = 1 * 720;
+    // Frame-to-frame increment (speed) -- may be positive or negative,
+    // but magnitude shouldn't be so small as to be boring.  It's generally
+    // still less than a full pixel per frame, making motion very smooth.
+//    fxVars[idx][3] = 1 + random(720) / numPixels;
+//    fxVars[idx][3] = 1;
+    fxVars[idx][3] = 4;
+    // Reverse direction half the time.
+    if(random(2) == 0) fxVars[idx][3] = -fxVars[idx][3];
+    fxVars[idx][4] = 0; // Current position
+    fxVars[idx][0] = 1; // Effect initialized
+//    fxVars[idx][5] = 15 + random(360); // wave period
+//    fxVars[idx][5] = 30 + random(150); // wave period (width)
+    fxVars[idx][5] = 720 * 4 / numPixels; // wave period (width)
+//    fxVars[idx][5] = random(720 * 2 / numPixels, 180); // wave period (width)
+  }
+
+  byte *ptr = &imgData[idx][0];
+  int alpha;
+  int halfPeriod = fxVars[idx][5] / 2;
+  int distance;
+  long color;
+  for(long i=0; i<numPixels; i++) {
+    alpha = getPointChaseAlpha(idx, (i + frontOffset + 1) % numPixels, halfPeriod) + getPointChaseAlpha(idx, (numPixels - 1 - i + (numPixels - frontOffset)) % numPixels, halfPeriod);
+    if (alpha > 255) alpha = 255;
+    
+    // Peaks of sine wave are white, troughs are black, mid-range
+    // values are pure hue (100% saturated).
+
+//    color = hsv2rgb(fxVars[idx][1], 255, alpha);
+//    *ptr++ = color >> 16; *ptr++ = color >> 8; *ptr++ = color;
+    *ptr++ = colorRed; *ptr++ = colorGreen; *ptr++ = colorBlue;
+  }
   fxVars[idx][4] = map(fsrStepFraction, 0, fsrStepFractionMax, 0, 720);
 }
 
