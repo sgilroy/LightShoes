@@ -47,7 +47,8 @@ int brightnessLimiter = 0;
 
 // Declare the number of pixels in strand; 32 = 32 pixels in a row.  The
 // LED strips have 32 LEDs per meter, but you can extend or cut the strip.
-const int numPixels = 32;
+//const int numPixels = 30; // backpack
+const int numPixels = 22; // shoes
 // 'const' makes subsequent array declarations possible, otherwise there
 // would be a pile of malloc() calls later.
 
@@ -104,15 +105,16 @@ long hsv2rgb(long h, byte s, byte v);
 char fixSin(int angle);
 char fixCos(int angle);
 int getPointChaseAlpha(byte idx, long i, int halfPeriod);
+long pickHue(long currentHue);
 
 // List of image effect and alpha channel rendering functions; the code for
 // each of these appears later in this file.  Just a few to start with...
 // simply append new ones to the appropriate list here:
 void (*renderEffect[])(byte) = {
+//  renderEffectMonochromeChase,
   renderEffectMonochromeChase,
-  renderEffectMonochromeChase,
-  renderEffectBlast,
-  renderEffectBlast,
+//  renderEffectBlast,
+//  renderEffectBlast,
 //  renderEffectBlast,
 //  renderEffectBlast,
   renderEffectSolidFill,
@@ -128,7 +130,7 @@ void (*renderEffect[])(byte) = {
 (*renderAlpha[])(void)  = {
   renderAlphaFade,
   renderAlphaWipe,
-//  renderAlphaDither
+  renderAlphaDither
   };
 
 /* FSR testing sketch. 
@@ -148,6 +150,7 @@ int fsrStepFraction = 0;
 int fsrStepFractionMax = 60;
 bool gammaRespondsToForce = false;
 const bool debugFsrReading = false;
+const bool forceResistorInUse = false;
 
 int fsrReadingIndex = 0;
 #define numFsrReadings 5
@@ -156,7 +159,10 @@ int fsrReadings[numFsrReadings];
 byte colorRed = 0;
 byte colorGreen = 0;
 byte colorBlue = 0;
+long bluetoothColor = 0;
+long bluetoothColorHue; // hue 0-1535
 
+const int maxHue = 1535;
 // ---------------------------------------------------------------------------
 
 void readForce() {
@@ -256,13 +262,14 @@ void setup() {
 //  delay(100);
 //  meetAndroid.uart.print("$$$");
 //  delay(100);
-//  meetAndroid.uart.println("U,115200,N");
+//  meetAndroid.uart.println("U,57600,N");
 
 //  meetAndroid.uart.begin(57600); 
   // register callback functions, which will be called when an associated event occurs.
-  meetAndroid.registerFunction(red, 'o');
-  meetAndroid.registerFunction(green, 'p');  
-  meetAndroid.registerFunction(blue, 'q'); 
+//  meetAndroid.registerFunction(meetAndroid_handleRed, 'o');
+//  meetAndroid.registerFunction(meetAndroid_handleGreen, 'p');  
+//  meetAndroid.registerFunction(meetAndroid_handleBlue, 'q'); 
+  meetAndroid.registerFunction(meetAndroid_handleColor, 'c');
 
   Serial.begin(115200);
   if (DEBUG_PRINTS)
@@ -299,14 +306,50 @@ void setup() {
 void loop() {
   // Do nothing.  All the work happens in the callback() function below,
   // but we still need loop() here to keep the compiler happy.
-  meetAndroid.receive(); // you need to keep this in your loop() to receive events
+//  meetAndroid.receive(); // you need to keep this in your loop() to receive events
 }
+
+/*
+ * Whenever the multicolor lamp app changes the color
+ * this function will be called
+ */
+void meetAndroid_handleColor(byte flag, byte numOfValues)
+{
+  Serial.print("meetAndroid_handleColor ");
+  Serial.print(flag);
+  Serial.print(" numOfValues = ");
+  Serial.print((int)numOfValues);
+  Serial.print(" Buffer length = ");
+  Serial.print(meetAndroid.bufferLength());
+  Serial.print(", ");
+  if (meetAndroid.bufferLength() >= 2)
+  {
+    bluetoothColor = meetAndroid.getLong();
+    bluetoothColorHue = rgb2hsv(bluetoothColor);
+  }
+//  byte redByte = meetAndroid.getChar();
+  byte r = bluetoothColor << 16, g = bluetoothColor << 8, b = bluetoothColor;
+  Serial.print("Red = ");
+  Serial.print((int)r);
+  Serial.print(" Green = ");
+  Serial.print((int)g);
+  Serial.print(" Blue = ");
+  Serial.print((int)b);
+  Serial.print(" Hue = ");
+  Serial.println(bluetoothColorHue);
+}
+
+long pickHue(long currentHue)
+{
+  return (bluetoothColor == 0 ? currentHue : bluetoothColorHue);
+}
+
 
 /*
  * Whenever the multicolor lamp app changes the red value
  * this function will be called
  */
-void red(byte flag, byte numOfValues)
+void meetAndroid_handleRed(byte flag, byte numOfValues)
 {
   Serial.print("Buffer length = ");
   Serial.print(meetAndroid.bufferLength());
@@ -320,7 +363,7 @@ void red(byte flag, byte numOfValues)
  * Whenever the multicolor lamp app changes the green value
  * this function will be called
  */
-void green(byte flag, byte numOfValues)
+void meetAndroid_handleGreen(byte flag, byte numOfValues)
 {
   colorGreen = meetAndroid.getInt();
 }
@@ -329,7 +372,7 @@ void green(byte flag, byte numOfValues)
  * Whenever the multicolor lamp app changes the blue value
  * this function will be called
  */
-void blue(byte flag, byte numOfValues)
+void meetAndroid_handleBlue(byte flag, byte numOfValues)
 {
   colorBlue = meetAndroid.getInt();
 }
@@ -421,7 +464,8 @@ void callback() {
     Serial.print(clockLeftPin);
     Serial.println();
   }
-  readForce();
+//  readForce();
+  meetAndroid.receive(); // you need to keep this in your loop() to receive events
 }
 
 // ---------------------------------------------------------------------------
@@ -444,13 +488,25 @@ void renderEffectSolidFill(byte idx) {
   // Only needs to be rendered once, when effect is initialized:
   if(fxVars[idx][0] == 0) {
     gammaRespondsToForce = true;
-    byte *ptr = &imgData[idx][0],
-      r = random(256), g = random(256), b = random(256);
-    for(int i=0; i<numPixels; i++) {
-      *ptr++ = r; *ptr++ = g; *ptr++ = b;
-    }
+    fxVars[idx][1] = random(256);
+    fxVars[idx][2] = random(256);
+    fxVars[idx][3] = random(256);
     fxVars[idx][0] = 1; // Effect initialized
   }
+  
+  byte *ptr = &imgData[idx][0],
+    r = fxVars[idx][1], g = fxVars[idx][2], b = fxVars[idx][3];
+  for(int i=0; i<numPixels; i++) {
+    if (bluetoothColor == 0)
+    {
+      *ptr++ = r; *ptr++ = g; *ptr++ = b;
+    }
+    else
+    {
+      *ptr++ = bluetoothColor >> 16; *ptr++ = bluetoothColor >> 8; *ptr++ = bluetoothColor;
+    }
+  }
+  
 }
 
 void renderEffectDebug1(byte idx) {
@@ -484,7 +540,7 @@ void renderEffectRainbow(byte idx) {
     // Number of repetitions (complete loops around color wheel); any
     // more than 4 per meter just looks too chaotic and un-rainbow-like.
     // Store as hue 'distance' around complete belt:
-    fxVars[idx][1] = (1 + random(4 * ((numPixels + 31) / 32))) * 1536;
+    fxVars[idx][1] = (1 + random(4 * ((numPixels + 31) / 32))) * (maxHue + 1);
     // Frame-to-frame hue increment (speed) -- may be positive or negative,
     // but magnitude shouldn't be so small as to be boring.  It's generally
     // still less than a full pixel per frame, making motion very smooth.
@@ -510,7 +566,7 @@ void renderEffectRainbow(byte idx) {
 void renderEffectSineWaveChase(byte idx) {
   if(fxVars[idx][0] == 0) { // Initialize effect?
     gammaRespondsToForce = true;
-    fxVars[idx][1] = random(1536); // Random hue
+    fxVars[idx][1] = random(maxHue + 1); // Random hue
     // Number of repetitions (complete loops around color wheel);
     // any more than 4 per meter just looks too chaotic.
     // Store as distance around complete belt in half-degree units:
@@ -528,13 +584,14 @@ void renderEffectSineWaveChase(byte idx) {
   byte *ptr = &imgData[idx][0];
   int  foo;
   long color, i;
+  long hue = pickHue(fxVars[idx][1]);
   for(long i=0; i<numPixels; i++) {
     foo = fixSin(fxVars[idx][4] + fxVars[idx][2] * i / numPixels);
     // Peaks of sine wave are white, troughs are black, mid-range
     // values are pure hue (100% saturated).
     color = (foo >= 0) ?
-       hsv2rgb(fxVars[idx][1], 254 - (foo * 2), 255) :
-       hsv2rgb(fxVars[idx][1], 255, 254 + foo * 2);
+       hsv2rgb(hue, 254 - (foo * 2), 255) :
+       hsv2rgb(hue, 255, 254 + foo * 2);
     *ptr++ = color >> 16; *ptr++ = color >> 8; *ptr++ = color;
   }
   fxVars[idx][4] += fxVars[idx][3];
@@ -543,7 +600,7 @@ void renderEffectSineWaveChase(byte idx) {
 void renderEffectBlast(byte idx) {
   if(fxVars[idx][0] == 0) { // Initialize effect?
     gammaRespondsToForce = false;
-    fxVars[idx][1] = random(1536); // Random hue
+    fxVars[idx][1] = random(maxHue + 1); // Random hue
     // Number of repetitions (complete loops around color wheel);
     // any more than 4 per meter just looks too chaotic.
     // Store as distance around complete belt in half-degree units:
@@ -570,6 +627,7 @@ void renderEffectBlast(byte idx) {
   int halfPeriod = fxVars[idx][5] / 2;
   int distance;
   long color;
+  long hue = pickHue(fxVars[idx][1]);
   for(long i=0; i<numPixels; i++) {
     alpha = getPointChaseAlpha(idx, (i + frontOffset + 1) % numPixels, halfPeriod) + getPointChaseAlpha(idx, (numPixels - 1 - i + (numPixels - frontOffset)) % numPixels, halfPeriod);
     if (alpha > 255) alpha = 255;
@@ -577,7 +635,7 @@ void renderEffectBlast(byte idx) {
     // Peaks of sine wave are white, troughs are black, mid-range
     // values are pure hue (100% saturated).
 
-    color = hsv2rgb(fxVars[idx][1], 255, alpha);
+    color = hsv2rgb(hue, 255, alpha);
     *ptr++ = color >> 16; *ptr++ = color >> 8; *ptr++ = color;
 //    *ptr++ = colorRed; *ptr++ = colorGreen; *ptr++ = colorBlue;
   }
@@ -589,7 +647,7 @@ void renderEffectBlast(byte idx) {
 void renderEffectBluetoothLamp(byte idx) {
   if(fxVars[idx][0] == 0) { // Initialize effect?
     gammaRespondsToForce = false;
-    fxVars[idx][1] = random(1536); // Random hue
+    fxVars[idx][1] = random(maxHue + 1); // Random hue
     // Number of repetitions (complete loops around color wheel);
     // any more than 4 per meter just looks too chaotic.
     // Store as distance around complete belt in half-degree units:
@@ -633,7 +691,7 @@ void renderEffectBluetoothLamp(byte idx) {
 void renderEffectNewtonsCradle(byte idx) {
   if(fxVars[idx][0] == 0) { // Initialize effect?
     gammaRespondsToForce = false;
-    fxVars[idx][1] = random(1536); // Random hue
+    fxVars[idx][1] = random(maxHue + 1); // Random hue
     // Number of repetitions (complete loops around color wheel);
     // any more than 4 per meter just looks too chaotic.
     // Store as distance around complete belt in half-degree units:
@@ -660,13 +718,14 @@ void renderEffectNewtonsCradle(byte idx) {
   int halfPeriod = fxVars[idx][5] / 2;
   int distance;
   long color;
+  long hue = pickHue(fxVars[idx][1]);
   for(long i=0; i<numPixels; i++) {
     alpha = getPointChaseAlpha(idx, (i + frontOffset + 1) % numPixels, halfPeriod) + getPointChaseAlpha(idx, (numPixels - 1 - i + (numPixels - frontOffset)) % numPixels, halfPeriod);
     if (alpha > 255) alpha = 255;
     
     // Peaks of sine wave are white, troughs are black, mid-range
     // values are pure hue (100% saturated).
-    color = hsv2rgb(fxVars[idx][1], 255, alpha);
+    color = hsv2rgb(hue, 255, alpha);
     *ptr++ = color >> 16; *ptr++ = color >> 8; *ptr++ = color;
   }
   fxVars[idx][4] += fxVars[idx][3];
@@ -686,7 +745,7 @@ int getPointChaseAlpha(byte idx, long i, int halfPeriod)
 void renderEffectPointChase(byte idx) {
   if(fxVars[idx][0] == 0) { // Initialize effect?
     gammaRespondsToForce = false;
-    fxVars[idx][1] = random(1536); // Random hue
+    fxVars[idx][1] = random(maxHue + 1); // Random hue
     // Number of repetitions (complete loops around color wheel);
     // any more than 4 per meter just looks too chaotic.
     // Store as distance around complete belt in half-degree units:
@@ -712,6 +771,7 @@ void renderEffectPointChase(byte idx) {
   long color, i;
   int halfPeriod = fxVars[idx][5] / 2;
   int distance;
+  long hue = pickHue(fxVars[idx][1]);
   for(long i=0; i<numPixels; i++) {
     // position of current pixel in 1/2 degrees
     offset = fxVars[idx][2] * i / numPixels;
@@ -720,7 +780,7 @@ void renderEffectPointChase(byte idx) {
     foo = distance > fxVars[idx][5] || distance < 0 ? -127 : fixSin((distance * 360 / halfPeriod) - 180);
     // Peaks of sine wave are white, troughs are black, mid-range
     // values are pure hue (100% saturated).
-    color = hsv2rgb(fxVars[idx][1], 255, 127 + foo);
+    color = hsv2rgb(hue, 255, 127 + foo);
     *ptr++ = color >> 16; *ptr++ = color >> 8; *ptr++ = color;
   }
   fxVars[idx][4] += fxVars[idx][3];
@@ -730,7 +790,7 @@ void renderEffectPointChase(byte idx) {
 void renderEffectMonochromeChase(byte idx) {
   if(fxVars[idx][0] == 0) { // Initialize effect?
     gammaRespondsToForce = false;
-    fxVars[idx][1] = random(1536); // Random hue
+    fxVars[idx][1] = random(maxHue + 1); // Random hue
     // Number of repetitions (complete loops around color wheel);
     // any more than 4 per meter just looks too chaotic.
     // Store as distance around complete belt in half-degree units:
@@ -749,12 +809,13 @@ void renderEffectMonochromeChase(byte idx) {
   int  foo;
   int theta;
   long color, i;
+  long hue = pickHue(fxVars[idx][1]);
   for(long i=0; i<numPixels; i++) {
     theta = (fxVars[idx][4]) + fxVars[idx][2] * i / numPixels;
     foo = fixSin(theta);
     // Peaks of sine wave are white, troughs are black, mid-range
     // values are pure hue (100% saturated).
-    color = hsv2rgb(fxVars[idx][1], 255, 127 + foo);
+    color = hsv2rgb(hue, 255, 127 + foo);
     *ptr++ = color >> 16; *ptr++ = color >> 8; *ptr++ = color;
   }
   fxVars[idx][4] += fxVars[idx][3];
@@ -763,7 +824,7 @@ void renderEffectMonochromeChase(byte idx) {
 void renderEffectThrob(byte idx) {
   if(fxVars[idx][0] == 0) { // Initialize effect?
     gammaRespondsToForce = false;
-    fxVars[idx][1] = random(1536); // Random hue
+    fxVars[idx][1] = random(maxHue + 1); // Random hue
     // Number of repetitions (complete loops around color wheel);
     // any more than 4 per meter just looks too chaotic.
     // Store as distance around complete belt in half-degree units:
@@ -782,11 +843,12 @@ void renderEffectThrob(byte idx) {
   byte *ptr = &imgData[idx][0];
   int  foo;
   long color, i;
+  long hue = pickHue(fxVars[idx][1]);
     foo = fixSin(fxVars[idx][4]);
   for(long i=0; i<numPixels; i++) {
     // Peaks of sine wave are white, troughs are black, mid-range
     // values are pure hue (100% saturated).
-    color = hsv2rgb(fxVars[idx][1], 255, 127 + foo);
+    color = hsv2rgb(hue, 255, 127 + foo);
     *ptr++ = color >> 16; *ptr++ = color >> 8; *ptr++ = color;
   }
   fxVars[idx][4] += fxVars[idx][3];
@@ -950,7 +1012,7 @@ PROGMEM prog_uchar gammaTable[]  = {
 // folks before even getting into the real substance of the program, and
 // the compiler permits forward references to functions but not data.
 inline byte gamma(byte x) {
-  if (gammaRespondsToForce)
+  if (gammaRespondsToForce && forceResistorInUse)
     return pgm_read_byte(&gammaTable[x]) * fsrStepFraction / fsrStepFractionMax >> brightnessLimiter;
   else
     return pgm_read_byte(&gammaTable[x]) >> brightnessLimiter;
@@ -972,8 +1034,8 @@ long hsv2rgb(long h, byte s, byte v) {
   long v1;
 
   // Hue
-  h %= 1536;           // -1535 to +1535
-  if(h < 0) h += 1536; //     0 to +1535
+  h %= maxHue + 1;           // -1535 to +1535
+  if(h < 0) h += maxHue + 1; //     0 to +1535
   lo = h & 255;        // Low byte  = primary/secondary color mix
   switch(h >> 8) {     // High byte = sextant of colorwheel
     case 0 : r = 255     ; g =  lo     ; b =   0     ; break; // R to Y
@@ -998,6 +1060,61 @@ long hsv2rgb(long h, byte s, byte v) {
   return (((r * v1) & 0xff00) << 8) |
           ((g * v1) & 0xff00)       |
          ( (b * v1)           >> 8);
+}
+
+// Given a color represented as a long with first 3 bytes for red, blue, and green each in range of 0-255
+// Return hue (h) in range of 0-1535
+// Based on code found here http://www.geekymonkey.com/Programming/CSharp/RGB2HSL_HSL2RGB.htm
+long rgb2hsv(long rgb)
+{
+  long h, s, l;
+  byte r = rgb << 16;
+  byte g = rgb << 8;
+  byte b = rgb;
+  byte v;
+  byte m;
+  byte vm;
+  double r2, g2, b2, hd;
+ 
+  h = 0; // default to black
+  s = 0;
+  l = 0;
+  v = max(r,g);
+  v = max(v,b);
+  m = min(r,g);
+  m = min(m,b);
+  l = ((int)m + v) / 2;
+  if (l <= 0)
+  {
+    return 0;
+  }
+  vm = v - m;
+  s = vm;
+  if (s > 0)
+  {
+        s /= (l <= 128) ? (v + m ) : (255 * 2 - v - m) ;
+  }
+  else
+  {
+    return 0;
+  }
+  r2 = ((double)v - r) / (double)vm;
+  g2 = ((double)v - g) / (double)vm;
+  b2 = ((double)v - b) / (double)vm;
+  if (r == v)
+  {
+        hd = (g == m ? 5.0 + b2 : 1.0 - g2);
+  }
+  else if (g == v)
+  {
+        hd = (b == m ? 1.0 + r2 : 3.0 - b2);
+  }
+  else
+  {
+        hd = (r == m ? 3.0 + g2 : 5.0 - r2);
+  }
+  h = hd / 6.0 * maxHue;
+  return h;
 }
 
 // The fixed-point sine and cosine functions use marginally more
